@@ -1,0 +1,18 @@
+# Sensitive files
+db.php.bak
+config.php
+*.log
+error.log
+
+# Uploads temporary files
+uploads/covers/*.tmp
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
