@@ -1,152 +1,122 @@
 <?php
 session_start();
 require 'db.php';
-$page_title = "Circulation";
-include 'header.php';
 
-// All PHP logic must be here - BEFORE any HTML
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
 }
 
+$role = $_SESSION['role'] ?? 'user';
 $user_id = $_SESSION['user_id'];
-$role = $_SESSION['role'];
+$success = $_GET['success'] ?? '';
 
-$search = trim($_GET['search'] ?? '');
-$status = trim($_GET['status'] ?? '');
-$author_filter = trim($_GET['author'] ?? '');
-
-$where = "";
-$params = [];
-
-if ($search) {
-    $where .= "AND (b.title LIKE ? OR b.author LIKE ?) ";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
+// Borrow Book
+if (isset($_GET['action']) && $_GET['action'] === 'checkout' && isset($_GET['book_id'])) {
+    $book_id = (int)$_GET['book_id'];
+    
+    $stmt = $pdo->prepare("SELECT * FROM books WHERE id = ? AND status = 'available'");
+    $stmt->execute([$book_id]);
+    
+    if ($stmt->fetch()) {
+        $stmt = $pdo->prepare("INSERT INTO borrowings (user_id, book_id, borrow_date, due_date) 
+                              VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 14 DAY))");
+        $stmt->execute([$user_id, $book_id]);
+        
+        $pdo->prepare("UPDATE books SET status = 'borrowed' WHERE id = ?")->execute([$book_id]);
+        
+        header("Location: circulation.php?success=Book borrowed successfully! Due in 14 days.");
+        exit;
+    }
 }
 
-if ($status) {
-    $where .= "AND b.status = ? ";
-    $params[] = $status;
-}
-
-if ($author_filter) {
-    $where .= "AND b.author LIKE ? ";
-    $params[] = "%$author_filter%";
-}
-
-$books = $pdo->prepare("SELECT b.*, br.borrow_date, br.due_date 
-                        FROM books b 
-                        LEFT JOIN borrowings br ON b.id = br.book_id AND br.status = 'borrowed' 
-                        WHERE 1=1 $where 
-                        ORDER BY b.title");
-$books->execute($params);
-$books = $books->fetchAll();
-
-// Reserve book
-if (isset($_GET['reserve']) && $id = (int)$_GET['reserve']) {
-    $pdo->prepare("INSERT INTO reservations (user_id, book_id, reservation_date) VALUES (?, ?, CURDATE())")->execute([$user_id, $id]);
-    header("Location: circulation.php");
+// Return Book
+if (isset($_GET['action']) && $_GET['action'] === 'checkin' && isset($_GET['book_id']) && $role === 'admin') {
+    $book_id = (int)$_GET['book_id'];
+    $pdo->prepare("UPDATE borrowings SET status = 'returned', return_date = CURDATE() WHERE book_id = ? AND status = 'borrowed'")->execute([$book_id]);
+    $pdo->prepare("UPDATE books SET status = 'available' WHERE id = ?")->execute([$book_id]);
+    header("Location: circulation.php?success=Book returned successfully!");
     exit;
 }
 
-// Checkout (set due_date = borrow_date + 14 days)
-if (isset($_GET['checkout']) && $id = (int)$_GET['checkout']) {
-    $stmt = $pdo->prepare("UPDATE books SET status='borrowed' WHERE id=? AND status='available'");
-    $stmt->execute([$id]);
-
-    $stmt = $pdo->prepare("INSERT INTO borrowings (user_id, book_id, borrow_date, due_date) 
-                           VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 14 DAY))");
-    $stmt->execute([$user_id, $id]);
-
-    header("Location: circulation.php");
-    exit;
-}
-
-// Checkin
-if (isset($_GET['checkin']) && $id = (int)$_GET['checkin']) {
-    $pdo->prepare("UPDATE books SET status='available' WHERE id=?")->execute([$id]);
-    $pdo->prepare("UPDATE borrowings SET status='returned', return_date=CURDATE() WHERE book_id=? AND status='borrowed'")->execute([$id]);
-    header("Location: circulation.php");
-    exit;
-}
-
-// Fetch books with borrowing info
-$books = $pdo->query("SELECT b.*, br.borrow_date, br.due_date 
-                      FROM books b 
-                      LEFT JOIN borrowings br ON b.id = br.book_id AND br.status = 'borrowed' 
-                      ORDER BY b.title")->fetchAll();
+// My Borrowed Books with Due Date
+$my_borrowed = $pdo->prepare("SELECT b.*, bk.title, bk.author, DATEDIFF(b.due_date, CURDATE()) as days_left 
+                             FROM borrowings b 
+                             JOIN books bk ON b.book_id = bk.id 
+                             WHERE b.user_id = ? AND b.status = 'borrowed' 
+                             ORDER BY b.due_date ASC");
+$my_borrowed->execute([$user_id]);
+$my_books = $my_borrowed->fetchAll();
 ?>
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circulation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body class="bg-light">
+
+<?php include 'includes/header.php'; ?>
+
 <div class="container mt-4">
-    <h2>Circulation (Check In / Out)</h2>
 
-<form method="GET" class="mb-4">
-    <div class="row">
-        <div class="col-md-4">
-            <input type="text" name="search" class="form-control" placeholder="Search title/author..." value="<?= htmlspecialchars($search) ?>">
-        </div>
-        <div class="col-md-3">
-            <select name="status" class="form-control">
-                <option value="">All Status</option>
-                <option value="available" <?= $status === 'available' ? 'selected' : '' ?>>Available</option>
-                <option value="borrowed" <?= $status === 'borrowed' ? 'selected' : '' ?>>Borrowed</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <input type="text" name="author" class="form-control" placeholder="Author filter" value="<?= htmlspecialchars($author_filter) ?>">
-        </div>
-        <div class="col-md-2">
-            <button type="submit" class="btn btn-primary w-100">Filter</button>
-        </div>
-    </div>
-</form>
+    <h2><i class="fas fa-exchange-alt"></i> Circulation</h2>
 
-    <a href="dashboard.php" class="btn btn-secondary mb-3">← Back</a>
-
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Title</th>
-                <th>Author</th>
-                <th>Status</th>
-                <th>Due Date</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($books as $book): ?>
-            <tr>
-                <td><?= htmlspecialchars($book['title']) ?></td>
-                <td><?= htmlspecialchars($book['author']) ?></td>
-                <td><span class="badge bg-<?= $book['status']=='available' ? 'success' : 'warning' ?>"><?= ucfirst($book['status']) ?></span></td>
-                <td><?= $book['due_date'] ? $book['due_date'] : '—' ?></td>
-                <td>
-                    <?php if ($book['status'] === 'available'): ?>
-                        <a href="?checkout=<?= $book['id'] ?>" class="btn btn-success btn-sm">Check Out</a>
-                    <?php elseif ($role === 'admin' || (isset($book['user_id']) && $book['user_id'] == $user_id)): ?>
-                        <a href="?checkin=<?= $book['id'] ?>" class="btn btn-info btn-sm">Check In</a>
-                    <?php else: ?>
-                        Borrowed
-                    <?php endif; ?>
-                </td>
-
-<td>
-    <?php if ($book['status'] === 'available'): ?>
-        <a href="?checkout=<?= $book['id'] ?>" class="btn btn-success btn-sm">Check Out</a>
-    <?php elseif ($role === 'admin' || $book['user_id'] == $user_id): ?>
-        <a href="?checkin=<?= $book['id'] ?>" class="btn btn-info btn-sm">Check In</a>
-    <?php else: ?>
-        Borrowed
-        <a href="?reserve=<?= $book['id'] ?>" class="btn btn-secondary btn-sm">Reserve</a>
+    <?php if ($success): ?>
+        <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
     <?php endif; ?>
-</td>
 
-            </tr>
+    <!-- My Borrowed Books -->
+    <h5 class="mt-4">📖 My Borrowed Books</h5>
+    <?php if (empty($my_books)): ?>
+        <p class="text-muted">You have no borrowed books at the moment.</p>
+    <?php else: ?>
+        <div class="row">
+            <?php foreach ($my_books as $b): ?>
+            <div class="col-md-6 mb-3">
+                <div class="card <?= $b['days_left'] < 3 ? 'border-danger' : '' ?>">
+                    <div class="card-body">
+                        <h6><?= htmlspecialchars($b['title']) ?></h6>
+                        <p><?= htmlspecialchars($b['author']) ?></p>
+                        <p><strong>Due Date:</strong> <?= $b['due_date'] ?></p>
+                        <?php if ($b['days_left'] <= 0): ?>
+                            <span class="badge bg-danger">OVERDUE (<?= abs($b['days_left']) ?> days)</span>
+                        <?php else: ?>
+                            <span class="badge bg-warning"><?= $b['days_left'] ?> days left</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
             <?php endforeach; ?>
-        </tbody>
-    </table>
+        </div>
+    <?php endif; ?>
+
+    <!-- Available Books -->
+    <h5 class="mt-5">📚 Available Books</h5>
+    <div class="row">
+        <?php foreach ($pdo->query("SELECT * FROM books WHERE status = 'available'")->fetchAll() as $book): ?>
+        <div class="col-md-4 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h6><?= htmlspecialchars($book['title']) ?></h6>
+                    <p class="text-muted"><?= htmlspecialchars($book['author']) ?></p>
+                    <a href="?action=checkout&book_id=<?= $book['id'] ?>" 
+                       class="btn btn-success" onclick="return confirm('Borrow this book?')">
+                        Borrow Book
+                    </a>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+
+    <a href="dashboard.php" class="btn btn-secondary mt-4">← Back to Dashboard</a>
 </div>
 
-<?php include 'footer.php'; ?>
+</body>
+</html>
+

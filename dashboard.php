@@ -1,16 +1,14 @@
 <?php
 session_start();
 require 'db.php';
-$page_title = "Dashboard";
-include 'header.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
 }
 
-$role = $_SESSION['role'];
-$username = $_SESSION['username'];
+$role = $_SESSION['role'] ?? 'user';
+$username = $_SESSION['username'] ?? 'User';
 ?>
 
 <!DOCTYPE html>
@@ -18,61 +16,109 @@ $username = $_SESSION['username'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Dashboard - Library System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
-        .sidebar { min-height: 100vh; background: #343a40; }
-        .sidebar .nav-link { color: white; }
-        .sidebar .nav-link:hover { background: #495057; }
+        .dashboard-card {
+            transition: all 0.3s ease;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
     </style>
 </head>
-<body>
+<body class="bg-light">
 
-<div class="d-flex">
-    <!-- Sidebar -->
-    <div class="sidebar col-md-3 col-lg-2 p-3">
-        <h4 class="text-white text-center mb-4">Library System</h4>
-        <ul class="nav flex-column">
-            <li class="nav-item">
-                <a class="nav-link" href="catalog.php">Cataloging</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="circulation.php">Circulation</a>
-            </li>
-            <?php if ($role === 'admin'): ?>
-                <li class="nav-item">
-                    <a class="nav-link" href="acquisitions.php">Acquisitions</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="members.php">Members</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="reports.php">Reports</a>
-                </li>
-            <?php endif; ?>
-            <li class="nav-item mt-4">
-                <a class="nav-link" href="profile.php">Change Password</a>
-            </li>
+<?php include 'includes/header.php'; ?>
 
+<div class="container mt-4">
 
-<li class="nav-item">
-    <a class="nav-link" href="my-borrowed.php"><i class="fas fa-book-reader me-1"></i> My Borrowed Books</a>
-</li>
-        </ul>
-        <div class="mt-auto p-3">
-            <p class="text-white">Logged in as: <?= htmlspecialchars($username) ?> (<?= $role ?>)</p>
-            <a href="logout.php" class="btn btn-outline-light w-100">Logout</a>
+    <div class="text-center mb-5">
+        <h1 class="display-5">Welcome Back, <?= htmlspecialchars($username) ?>!</h1>
+        <p class="lead text-muted">What would you like to do today?</p>
+    </div>
+
+    <div class="row g-4">
+
+        <!-- Catalog Card -->
+        <div class="col-md-6 col-lg-4">
+            <a href="catalog.php" class="text-decoration-none">
+                <div class="card dashboard-card h-100 text-center shadow">
+                    <div class="card-body">
+                        <i class="fas fa-book fa-4x text-primary mb-3"></i>
+                        <h4>Book Catalog</h4>
+                        <p class="text-muted">Browse, search and manage all books</p>
+                    </div>
+                </div>
+            </a>
         </div>
+
+        <!-- Circulation Card -->
+        <div class="col-md-6 col-lg-4">
+            <a href="circulation.php" class="text-decoration-none">
+                <div class="card dashboard-card h-100 text-center shadow">
+                    <div class="card-body">
+                        <i class="fas fa-exchange-alt fa-4x text-success mb-3"></i>
+                        <h4>Circulation</h4>
+                        <p class="text-muted">Issue and return books</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Reports Card -->
+        <div class="col-md-6 col-lg-4">
+            <a href="reports.php" class="text-decoration-none">
+                <div class="card dashboard-card h-100 text-center shadow">
+                    <div class="card-body">
+                        <i class="fas fa-chart-bar fa-4x text-info mb-3"></i>
+                        <h4>Reports</h4>
+                        <p class="text-muted">View library statistics</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <?php if ($role === 'admin'): ?>
+        <!-- Acquisitions -->
+        <div class="col-md-6 col-lg-4">
+            <a href="acquisitions.php" class="text-decoration-none">
+                <div class="card dashboard-card h-100 text-center shadow">
+                    <div class="card-body">
+                        <i class="fas fa-cart-plus fa-4x text-warning mb-3"></i>
+                        <h4>Acquisitions</h4>
+                        <p class="text-muted">Add new books to library</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Members -->
+        <div class="col-md-6 col-lg-4">
+            <a href="members.php" class="text-decoration-none">
+                <div class="card dashboard-card h-100 text-center shadow">
+                    <div class="card-body">
+                        <i class="fas fa-users fa-4x text-info mb-3"></i>
+                        <h4>Member Management</h4>
+                        <p class="text-muted">Manage library users</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <?php endif; ?>
+
     </div>
 
-    <!-- Main content -->
-    <div class="col p-4">
-        <h2>Welcome </h2>
+    <div class="text-center mt-5">
+        <a href="logout.php" class="btn btn-outline-danger btn-lg">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </a>
     </div>
+
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-<?php include 'footer.php'; ?>

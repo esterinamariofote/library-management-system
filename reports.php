@@ -1,120 +1,105 @@
 <?php
-  // ← Always asks for password
-require 'protect.php';
 session_start();
 require 'db.php';
-$page_title = "Reports";
-include 'header.php';
 
-// Search
-$search = trim($_GET['search'] ?? '');
-$where = $search ? "AND (b.title LIKE ? OR b.author LIKE ? OR u.username LIKE ?)" : "";
-$params = $search ? ["%$search%", "%$search%", "%$search%"] : [];
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit;
+}
 
-// Query
-$borrowed = $pdo->prepare("
-    SELECT 
-        b.title, 
-        b.author, 
-        u.username, 
-        br.borrow_date, 
-        br.due_date, 
-        br.id AS borrowing_id,
-        DATEDIFF(CURDATE(), br.due_date) AS days_overdue,
-        GREATEST(0, DATEDIFF(CURDATE(), br.due_date)) * 500 AS fine_ugx,
-        COALESCE(f.paid, 0) AS paid,
-        f.payment_date
-    FROM borrowings br
-    JOIN books b ON br.book_id = b.id
-    JOIN users u ON br.user_id = u.id
-    LEFT JOIN fines f ON f.borrowing_id = br.id
-    WHERE br.status = 'borrowed' $where
-    ORDER BY br.borrow_date DESC
-");
-$borrowed->execute($params);
-$borrowed = $borrowed->fetchAll() ?: [];
+// Statistics
+$total_books = $pdo->query("SELECT COUNT(*) FROM books")->fetchColumn();
+$available = $pdo->query("SELECT COUNT(*) FROM books WHERE status = 'available'")->fetchColumn();
+$borrowed = $pdo->query("SELECT COUNT(*) FROM books WHERE status = 'borrowed'")->fetchColumn();
+$total_members = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+$overdue = $pdo->query("SELECT COUNT(*) FROM borrowings WHERE status = 'borrowed' AND due_date < CURDATE()")->fetchColumn();
 
-$overdue = array_filter($borrowed, fn($b) => $b['days_overdue'] > 0);
-
-// Reservations
-$reservations = $pdo->query("
-    SELECT b.title, b.author, u.username, r.reservation_date
-    FROM reservations r
-    JOIN books b ON r.book_id = b.id
-    JOIN users u ON r.user_id = u.id
-    WHERE r.status = 'pending'
-    ORDER BY r.reservation_date ASC
-")->fetchAll();
+// Most Borrowed Books
+$popular = $pdo->query("SELECT bk.title, bk.author, COUNT(*) as times 
+                       FROM borrowings b 
+                       JOIN books bk ON b.book_id = bk.id 
+                       GROUP BY bk.id 
+                       ORDER BY times DESC LIMIT 5")->fetchAll();
 ?>
 
-<div class="container mt-4">
-    <h2>Library Reports (Admin Only)</h2>
-    <a href="dashboard.php" class="btn btn-secondary mb-3">← Back</a>
-    <form method="GET" class="mb-4">
-        <div class="input-group">
-            <input type="text" name="search" class="form-control" placeholder="Search by book title, author or user..." value="<?= htmlspecialchars($search) ?>">
-            <button type="submit" class="btn btn-primary">Filter</button>
-        </div>
-    </form>
-    <h4>Currently Borrowed Books (<?= count($borrowed) ?>)</h4>
-    <?php if (empty($borrowed)): ?>
-        <div class="alert alert-info">No matches found.</div>
-    <?php else: ?>
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Title</th><th>Author</th><th>Borrowed By</th><th>Borrow Date</th>
-                    <th>Due Date</th><th>Days Overdue</th><th>Fine (UGX)</th><th>Paid</th><th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($borrowed as $b): ?>
-                <tr <?= $b['days_overdue'] > 0 ? 'class="table-danger"' : '' ?>>
-                    <td><?= htmlspecialchars($b['title']) ?></td>
-                    <td><?= htmlspecialchars($b['author']) ?></td>
-                    <td><?= htmlspecialchars($b['username']) ?></td>
-                    <td><?= $b['borrow_date'] ?></td>
-                    <td><?= $b['due_date'] ?></td>
-                    <td><?= $b['days_overdue'] ?></td>
-                    <td><?= number_format($b['fine_ugx']) ?></td>
-                    <td><?= $b['paid'] ? 'Yes (on ' . $b['payment_date'] . ')' : 'No' ?></td>
-                    <td>
-                        <?php if ($b['days_overdue'] > 0 && !$b['paid']): ?>
-                            <a href="?mark_paid=<?= $b['borrowing_id'] ?>" class="btn btn-success btn-sm">Mark Paid</a>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-    <?php endif; ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports - Library System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body class="bg-light">
 
-    <hr class="my-5">
-    <h4>Pending Reservations (<?= count($reservations) ?>)</h4>
-    <?php if (empty($reservations)): ?>
-        <div class="alert alert-info">No pending reservations.</div>
-    <?php else: ?>
-        <table class="table table-striped">
-            <thead>
+<?php include 'includes/header.php'; ?>
+
+<div class="container mt-4">
+
+    <h2><i class="fas fa-chart-bar me-2 text-info"></i> Library Reports</h2>
+
+    <!-- Summary Cards -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-3">
+            <div class="card text-center shadow">
+                <div class="card-body">
+                    <h3 class="text-primary"><?= $total_books ?></h3>
+                    <p class="text-muted">Total Books</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow">
+                <div class="card-body">
+                    <h3 class="text-success"><?= $available ?></h3>
+                    <p class="text-muted">Available Books</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow">
+                <div class="card-body">
+                    <h3 class="text-warning"><?= $borrowed ?></h3>
+                    <p class="text-muted">Borrowed Books</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow border-danger">
+                <div class="card-body">
+                    <h3 class="text-danger"><?= $overdue ?></h3>
+                    <p class="text-muted">Overdue Books</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Most Popular Books -->
+    <h4 class="mb-3">🔥 Most Borrowed Books</h4>
+    <div class="table-responsive">
+        <table class="table table-bordered">
+            <thead class="table-dark">
                 <tr>
                     <th>Title</th>
                     <th>Author</th>
-                    <th>Reserved By</th>
-                    <th>Reservation Date</th>
+                    <th>Borrowed Times</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($reservations as $r): ?>
+                <?php foreach ($popular as $p): ?>
                 <tr>
-                    <td><?= htmlspecialchars($r['title']) ?></td>
-                    <td><?= htmlspecialchars($r['author']) ?></td>
-                    <td><?= htmlspecialchars($r['username']) ?></td>
-                    <td><?= $r['reservation_date'] ?></td>
+                    <td><?= htmlspecialchars($p['title']) ?></td>
+                    <td><?= htmlspecialchars($p['author']) ?></td>
+                    <td><strong><?= $p['times'] ?></strong> times</td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
-    <?php endif; ?>
+    </div>
+
+    <a href="dashboard.php" class="btn btn-secondary mt-4">← Back to Dashboard</a>
 </div>
 
-<?php include 'footer.php'; ?>
+</body>
+</html>
